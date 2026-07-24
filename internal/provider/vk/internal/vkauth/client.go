@@ -74,6 +74,10 @@ type Client struct {
 	// В prod подключён (*Client).getTokenChain; тесты подменяют fake.
 	tokenChain tokenChainFn
 
+	// vkCallsFetch - VKCalls-путь (api.vk.me, без captcha). В prod подключён
+	// (*Client).getVKCredsViaVKCallsPath; тесты подменяют fake.
+	vkCallsFetch func(ctx context.Context, link string, streamID int) (string, string, []string, error)
+
 	// minFetchIntervalFn ограничивает частоту запросов к VK. Тесты снижают.
 	minFetchIntervalFn func() time.Duration
 }
@@ -103,6 +107,7 @@ func New(cfg Config) *Client {
 		c.streamsFn = func() int32 { return 1 }
 	}
 	c.tokenChain = c.getTokenChain
+	c.vkCallsFetch = c.getVKCredsViaVKCallsPath
 	c.minFetchIntervalFn = func() time.Duration {
 		return 3*time.Second + time.Duration(randx.Intn(3000))*time.Millisecond
 	}
@@ -269,7 +274,7 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 	}
 
 	if !vkAuthModeLegacy() {
-		user, pass, addrs, err := c.getVKCredsViaVKCallsPath(ctx, link, streamID)
+		user, pass, addrs, err := c.vkCallsFetch(ctx, link, streamID)
 		if err == nil {
 			c.log.Infof("[STREAM %d] [VK Auth] Success via VK Calls path", streamID)
 			return user, pass, addrs, nil
@@ -277,9 +282,6 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 		if term := vkCallsTerminalLinkError(err); term != nil {
 			c.log.Warnf("[STREAM %d] [VK Auth] VK Calls path terminal: %v", streamID, term)
 			return "", "", nil, term
-		}
-		if errors.Is(err, ErrInvalidJoinLink) || errors.Is(err, ErrAnonymousBlocked) || errors.Is(err, ErrCallFull) {
-			return "", "", nil, err
 		}
 		c.log.Infof("[STREAM %d] [VK Auth] VK Calls path failed (%v), falling back to legacy", streamID, err)
 	} else {

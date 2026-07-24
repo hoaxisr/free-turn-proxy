@@ -53,5 +53,5 @@ Version baked in: `1.8.0-3` (`main.version` ldflag)
    - Before legacy `calls.getAnonymousToken` (+ captcha), try `api.vk.me` flow:
      `auth.getAnonymToken` → `messages.getCallPreview` → `messages.getAnonymCallToken` → OK CDN → TURN
    - On failure (except terminal link errors) fall back to legacy auto-captcha
-   - Env: `FREETURN_VK_AUTH_MODE=legacy` skips VKCalls; `FREETURN_SKIP_VKCALLS=1` same
+   - Env: `FREETURN_VK_AUTH_MODE=legacy` skips VKCalls
    - Works on Android/mobile too (same `vkauth.Client` path)

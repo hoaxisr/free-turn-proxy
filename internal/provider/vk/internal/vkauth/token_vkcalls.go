@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/browserprofile"
-	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/captcha"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/namegen"
 
 	fhttp "github.com/bogdanfinn/fhttp"
@@ -29,7 +28,6 @@ const (
 type vkCallsFailureKind string
 
 const (
-	vkCallsFailureSkipped vkCallsFailureKind = "skipped"
 	vkCallsFailureSetup   vkCallsFailureKind = "setup"
 	vkCallsFailureNetwork vkCallsFailureKind = "network"
 	vkCallsFailureDecode  vkCallsFailureKind = "decode"
@@ -133,16 +131,8 @@ func vkAuthModeLegacy() bool {
 	}
 }
 
-func vkCallsDisabled() bool {
-	return strings.TrimSpace(os.Getenv("FREETURN_SKIP_VKCALLS")) == "1"
-}
-
 // getVKCredsViaVKCallsPath — WDTT-style auth через api.vk.me (обычно без Smart Captcha).
 func (c *Client) getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (string, string, []string, error) {
-	if vkCallsDisabled() {
-		return "", "", nil, newVKCallsFailure("preflight", vkCallsFailureSkipped, fmt.Errorf("disabled by FREETURN_SKIP_VKCALLS=1"))
-	}
-
 	deviceID := uuid.New().String()
 	name := namegen.Generate()
 	profile := browserprofile.For(browserprofile.Chrome, browserprofile.Desktop)
@@ -199,6 +189,9 @@ func (c *Client) getVKCredsViaVKCallsPath(ctx context.Context, link string, stre
 	resp1, err := doRequest(step1, step1URL)
 	if err != nil {
 		return "", "", nil, err
+	}
+	if apiErr := vkCallsAPIError(resp1); apiErr != nil {
+		return "", "", nil, newVKCallsFailure(step1, vkCallsAPIErrorKind(apiErr), apiErr)
 	}
 	anonymToken, err := extractVKCallsStr(resp1, "response", "token")
 	if err != nil {
@@ -266,28 +259,29 @@ func (c *Client) getVKCredsViaVKCallsPath(ctx context.Context, link string, stre
 	if err != nil {
 		return "", "", nil, err
 	}
+	// resp4/resp5 в текст ошибок не включаем: там session_key и TURN-креды.
 	sessionKey, err := extractVKCallsStr(resp4, "session_key")
 	if err != nil {
-		return "", "", nil, newVKCallsFailure(step4, vkCallsFailureParse, fmt.Errorf("parse session_key: %w (resp: %s)", err, truncateVKCallsResp(resp4)))
+		return "", "", nil, newVKCallsFailure(step4, vkCallsFailureParse, fmt.Errorf("parse session_key: %w", err))
 	}
 	c.log.Infof("[STREAM %d] [VKCalls] step4 OK, OK session_key (%d chars)", streamID, len(sessionKey))
 
 	step5 := "step5 vchat.joinConversationByLink"
 	step5URL := fmt.Sprintf(
 		"https://calls.okcdn.ru/fb.do?joinLink=%s&isVideo=false&protocolVersion=5&anonymToken=%s&method=vchat.joinConversationByLink&format=JSON&application_key=CGMMEJLGDIHBABABA&session_key=%s",
-		link, okAnonymToken, sessionKey,
+		neturl.QueryEscape(link), neturl.QueryEscape(okAnonymToken), neturl.QueryEscape(sessionKey),
 	)
 	resp5, err := doRequest(step5, step5URL)
 	if err != nil {
 		return "", "", nil, err
 	}
 	if okErr := vkCallsOKError(resp5); okErr != nil {
-		return "", "", nil, newVKCallsFailure(step5, vkCallsFailureOKCDN, fmt.Errorf("%w (resp: %s)", okErr, truncateVKCallsResp(resp5)))
+		return "", "", nil, newVKCallsFailure(step5, vkCallsFailureOKCDN, okErr)
 	}
 
 	user, err := extractVKCallsStr(resp5, "turn_server", "username")
 	if err != nil {
-		return "", "", nil, newVKCallsFailure(step5, vkCallsFailureParse, fmt.Errorf("parse username: %w (resp: %s)", err, truncateVKCallsResp(resp5)))
+		return "", "", nil, newVKCallsFailure(step5, vkCallsFailureParse, fmt.Errorf("parse username: %w", err))
 	}
 	pass, err := extractVKCallsStr(resp5, "turn_server", "credential")
 	if err != nil {
@@ -375,11 +369,6 @@ func vkCallsAPIError(resp map[string]any) error {
 	}
 	if term := classifyLinkError(errObj); term != nil {
 		return term
-	}
-	if code == 14 {
-		if captchaErr := captcha.ParseError(errObj); captchaErr != nil && captchaErr.IsCaptcha() {
-			return &vkCallsVKAPIError{Code: code, Message: msg}
-		}
 	}
 	return &vkCallsVKAPIError{Code: code, Message: msg}
 }
