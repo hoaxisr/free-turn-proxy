@@ -47,4 +47,11 @@ From awg-manager repo root:
 
 Output: `prebuilt/freeturn/client-linux-*` and `server-linux-*`
 
-Version baked in: `1.8.0-2` (`main.version` ldflag)
+Version baked in: `1.8.0-3` (`main.version` ldflag)
+
+7. **VKCalls auth path (1.8.0-3, WDTT-inspired)**
+   - Before legacy `calls.getAnonymousToken` (+ captcha), try `api.vk.me` flow:
+     `auth.getAnonymToken` → `messages.getCallPreview` → `messages.getAnonymCallToken` → OK CDN → TURN
+   - On failure (except terminal link errors) fall back to legacy auto-captcha
+   - Env: `FREETURN_VK_AUTH_MODE=legacy` skips VKCalls
+   - Works on Android/mobile too (same `vkauth.Client` path)
