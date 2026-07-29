@@ -6,9 +6,9 @@ vars:
     sh: git describe --tags --always --dirty 2>/dev/null || echo dev
   LDFLAGS: -s -w -checklinkname=0 -X main.version={{.VERSION}}
   GOLANGCI_VERSION: v2.12.2
-  GOVULN_VERSION: v1.1.4
-  GORELEASER_VERSION: v2.15.4
-  TASK_VERSION: v3.51.1
+  GOVULN_VERSION: v1.6.0
+  GORELEASER_VERSION: v2.17.1
+  TASK_VERSION: v3.52.0
 
 tasks:
   default:

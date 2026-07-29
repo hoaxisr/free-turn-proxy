@@ -41,12 +41,12 @@ type Config struct {
 	AutoSolver   AutoSolveFunc
 	ManualSolver ManualSolveFunc
 
-	// Browser - браузерный профиль (UA + JA3 + client hints) для control-plane.
-	// Нулевое значение -> Chrome (исторический дефолт для прямых вызовов в тестах).
-	Browser browserprofile.Kind
-
 	// Platform - класс устройства персоны (desktop|mobile). Нулевое -> desktop.
 	Platform browserprofile.Platform
+
+	// FingerprintSeed - стабильная строка установки, из которой выводится
+	// личность персоны. Пустая -> случайная на запуск.
+	FingerprintSeed string
 
 	// Log - уровневый логгер. nil -> no-op.
 	Log logx.Logger
@@ -56,7 +56,6 @@ type Client struct {
 	credentials []VKCredentials
 	dialer      net.Dialer
 	manualOnly  bool
-	browser     browserprofile.Kind
 	platform    browserprofile.Platform
 	streamsFn   func() int32
 	autoSolver  AutoSolveFunc
@@ -67,8 +66,15 @@ type Client struct {
 
 	lockout atomic.Int64
 
+	personaMu sync.RWMutex
+	identity  browserprofile.Identity
+	persona   browserprofile.Profile
+
 	fetchMu       sync.Mutex
 	lastFetchTime time.Time
+	// captchaAttempt считает попытки решения captcha в рамках одного fetch, в том
+	// числе через рестарт цепочки после сжигания персоны. Только под fetchMu.
+	captchaAttempt int
 
 	// tokenChain - 4-шаговый получатель токена для пары credentials.
 	// В prod подключён (*Client).getTokenChain; тесты подменяют fake.
@@ -89,7 +95,6 @@ func New(cfg Config) *Client {
 		credentials: cfg.Credentials,
 		dialer:      cfg.Dialer,
 		manualOnly:  cfg.ManualOnly,
-		browser:     cfg.Browser,
 		platform:    cfg.Platform,
 		streamsFn:   cfg.StreamsAlive,
 		autoSolver:  cfg.AutoSolver,
@@ -111,7 +116,32 @@ func New(cfg Config) *Client {
 	c.minFetchIntervalFn = func() time.Duration {
 		return 3*time.Second + time.Duration(randx.Intn(3000))*time.Millisecond
 	}
+	seed := cfg.FingerprintSeed
+	if seed == "" {
+		// Пустой seed у всех установок дал бы им одну личность на всех.
+		seed = randx.Hex(16)
+	}
+	c.identity = browserprofile.Identity{Seed: seed}
+	c.persona = browserprofile.For(c.platform, c.identity)
 	return c
+}
+
+func (c *Client) currentPersona() browserprofile.Profile {
+	c.personaMu.RLock()
+	defer c.personaMu.RUnlock()
+	return c.persona
+}
+
+// burnPersona выдаёт следующее поколение личности. Зовётся, когда VK отверг
+// текущий отпечаток: продолжать в нём бессмысленно, а менять его в середине
+// сессии - сам по себе сигнал, поэтому цепочка перезапускается с нуля.
+func (c *Client) burnPersona(streamID int) {
+	c.personaMu.Lock()
+	c.identity.Gen++
+	c.persona = browserprofile.For(c.platform, c.identity)
+	ua, gen := c.persona.UserAgent, c.identity.Gen
+	c.personaMu.Unlock()
+	c.log.Infof("[STREAM %d] [VK Auth] Persona burned, gen=%d | User-Agent: %s", streamID, gen, ua)
 }
 
 // GetCredentials -> (username, password, server-addrs); addrs ротированы под
@@ -273,6 +303,8 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 		return "", "", nil, fmt.Errorf("%w: %w", ErrCaptchaWaitRequired, ErrLockoutActive)
 	}
 
+	c.captchaAttempt = 0
+
 	if !vkAuthModeLegacy() {
 		user, pass, addrs, err := c.vkCallsFetch(ctx, link, streamID)
 		if err == nil {
@@ -289,8 +321,10 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 	}
 
 	var lastErr error
+	burns := 0
 	jar := tlsclient.NewCookieJar()
-	for _, creds := range c.credentials {
+	for i := 0; i < len(c.credentials); {
+		creds := c.credentials[i]
 		c.log.Infof("[STREAM %d] [VK Auth] Trying credentials: client_id=%s", streamID, creds.ClientID)
 
 		user, pass, addrs, err := c.tokenChain(ctx, link, streamID, creds, jar)
@@ -300,6 +334,15 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 		}
 		lastErr = err
 		c.log.Warnf("[STREAM %d] [VK Auth] Failed with client_id=%s: %v", streamID, creds.ClientID, err)
+
+		// Личность сменилась - тот же client_id проходится заново с чистыми
+		// куками, пока не кончатся режимы решения captcha.
+		if errors.Is(err, ErrPersonaBurned) && burns < maxPersonaBurns {
+			burns++
+			jar = tlsclient.NewCookieJar()
+			continue
+		}
+		i++
 
 		if errors.Is(err, ErrCaptchaWaitRequired) || errors.Is(err, ErrFatalCaptchaNoStreams) ||
 			errors.Is(err, ErrInvalidJoinLink) || errors.Is(err, ErrAnonymousBlocked) ||
