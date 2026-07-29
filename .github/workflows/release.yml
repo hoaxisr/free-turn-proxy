@@ -16,13 +16,15 @@ jobs:
         run: |
           set -e
           VER="${GITHUB_REF_NAME#v}"
+          # -trimpath + фиксированные ldflags — сборка воспроизводима, SHA256
+          # релиза совпадает с локальной проверкой перед заливкой на зеркало.
           LDFLAGS="-X main.version=${VER} -s -w"
           mkdir -p dist
           build() { # $1 goarch  $2 suffix  $3 extra-env
             for pkg in ./cmd/client ./cmd/server; do
               name=$(basename "$pkg")
               env GOOS=linux GOARCH="$1" CGO_ENABLED=0 $3 \
-                go build -ldflags "$LDFLAGS" -o "dist/ft-${name}-linux-$2" "$pkg"
+                go build -ldflags "$LDFLAGS" -trimpath -o "dist/ft-${name}-linux-$2" "$pkg"
             done
           }
           build arm64 arm64 ""

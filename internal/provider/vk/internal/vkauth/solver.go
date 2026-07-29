@@ -57,4 +57,5 @@ type ManualSolveFunc func(
 	ctx context.Context,
 	captchaErr *captcha.Error,
 	dialer net.Dialer,
+	profile browserprofile.Profile,
 ) (token string, err error)

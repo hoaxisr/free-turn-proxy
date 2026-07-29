@@ -1,8 +1,20 @@
-# AWG Manager patches (based on upstream v1.8.0)
+# AWG Manager patches (based on upstream v2.0.1)
 
 Forked for router-friendly **auto-only** VK Smart Captcha.
 
-## Changes vs samosvalishe/free-turn-proxy v1.8.0
+## Changes vs samosvalishe/free-turn-proxy v2.0.1
+
+> Перенос 1.8.0 → 2.0.1 (2026-07-29). Апстрим сам реализовал часть наших
+> доработок, причём аккуратнее, — они убраны из форка:
+> * ротация браузерных семейств (`-browser`, `browserprofile.Kind`) — апстрим
+>   перешёл на персоны по `-platform` (desktop/mobile), семейство всегда Chrome;
+> * checkbox → slider при show-type mismatch — апстримовый `escalate()`
+>   доигрывает слайдер в той же сессии;
+> * `status=BOT` / `ERROR_LIMIT` — разведены на `errCaptchaBot` и
+>   `errCaptchaRateLimit` с fail-fast.
+>
+> Осталось нашим: пункты 1 (5 auto-раундов, глобальный мьютекс), 3 (host
+> captcha lock, сгоревшая сессия), 4, 5, 6, 7.
 
 1. **Auto orchestrator (WDTT-inspired, no WebView)**
    - 5 auto rounds per captcha challenge (`captchaAutoRounds`)

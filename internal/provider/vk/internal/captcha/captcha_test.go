@@ -2,12 +2,8 @@ package captcha
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
-
-	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/browserprofile"
 )
 
 func TestCaptchaInitSettingContentRefPrefersSettingsKey(t *testing.T) {
@@ -40,7 +36,7 @@ func TestParseCaptchaPageSPA(t *testing.T) {
 const powInput = "Pihj7tyAHFxdwm4t";
 const difficulty = 2;
 </script>
-<script src="https://id.vk.ru/static/vkid/1.1.1374/not_robot_captcha.js"></script>
+<script src="https://static.vk.ru/vkid/1.1.1384/not_robot_captcha.js"></script>
 </head><body><div id="spa_root"></div></body></html>`
 
 	page, err := parseCaptchaPage(html)
@@ -50,7 +46,7 @@ const difficulty = 2;
 	if page.PowInput != "Pihj7tyAHFxdwm4t" || page.PowDifficulty != 2 {
 		t.Fatalf("pow parse = %q/%d", page.PowInput, page.PowDifficulty)
 	}
-	if page.ScriptURL != "https://id.vk.ru/static/vkid/1.1.1374/not_robot_captcha.js" {
+	if page.ScriptURL != "https://static.vk.ru/vkid/1.1.1384/not_robot_captcha.js" {
 		t.Fatalf("script url = %q", page.ScriptURL)
 	}
 }
@@ -142,40 +138,6 @@ func TestCaptchaDomainFromRedirectURI(t *testing.T) {
 	}
 }
 
-func TestCaptchaConnectionFieldsGatedByFamily(t *testing.T) {
-	for _, family := range []browserprofile.Kind{browserprofile.Firefox, browserprofile.Safari} {
-		if got := captchaConnectionFields(family, true); got != nil {
-			t.Fatalf("%s must omit NetworkInformation telemetry, got %v", family, got)
-		}
-	}
-	got := captchaConnectionFields(browserprofile.Chrome, true)
-	if len(got) != 2 || got[0][0] != "connectionRtt" || got[1][0] != "connectionDownlink" {
-		t.Fatalf("chrome connection fields = %v, want rtt+downlink", got)
-	}
-	// Реальный браузер шлёт фиксированную выборку, не привязанную к курсору.
-	var rtt []int
-	if err := json.Unmarshal([]byte(got[0][1]), &rtt); err != nil || len(rtt) != captchaConnectionSamples {
-		t.Fatalf("connectionRtt = %s, want %d samples", got[0][1], captchaConnectionSamples)
-	}
-}
-
-func TestCaptchaMobileAccelerometerIsGravity(t *testing.T) {
-	var pts []struct{ X, Y, Z float64 }
-	if err := json.Unmarshal([]byte(captchaMobileAccelerometer()), &pts); err != nil {
-		t.Fatal(err)
-	}
-	if len(pts) != 3 {
-		t.Fatalf("samples = %d, want 3", len(pts))
-	}
-	// Магнитуда каждого сэмпла ~ g (покоящийся телефон).
-	for _, p := range pts {
-		mag := p.X*p.X + p.Y*p.Y + p.Z*p.Z
-		if mag < 64 || mag > 144 { // |a| в [8, 12]
-			t.Fatalf("accelerometer magnitude^2 = %.1f, not gravity-like", mag)
-		}
-	}
-}
-
 func TestReverseSwapPairs(t *testing.T) {
 	got := reverseSwapPairs([]int{1, 2, 3, 4, 5, 6})
 	want := []int{5, 6, 3, 4, 1, 2}
@@ -186,20 +148,5 @@ func TestReverseSwapPairs(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("reverseSwapPairs = %v, want %v", got, want)
 		}
-	}
-}
-
-func TestParseSliderPuzzleSessionDead(t *testing.T) {
-	raw := map[string]any{"response": map[string]any{"status": "ERROR"}}
-	_, err := parseSliderPuzzle(raw)
-	if !errors.Is(err, errCaptchaSessionDead) {
-		t.Fatalf("parseSliderPuzzle = %v, want errCaptchaSessionDead", err)
-	}
-}
-
-func TestBuildSliderCursorIsBrowserLike(t *testing.T) {
-	cursor := buildSliderCursor(5, 25)
-	if got := captchaCursorPointCount(cursor); got < 70 {
-		t.Fatalf("cursor point count = %d, want at least 70", got)
 	}
 }

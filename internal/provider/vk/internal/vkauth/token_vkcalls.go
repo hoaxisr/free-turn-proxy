@@ -135,7 +135,7 @@ func vkAuthModeLegacy() bool {
 func (c *Client) getVKCredsViaVKCallsPath(ctx context.Context, link string, streamID int) (string, string, []string, error) {
 	deviceID := uuid.New().String()
 	name := namegen.Generate()
-	profile := browserprofile.For(browserprofile.Chrome, browserprofile.Desktop)
+	profile := c.currentPersona()
 	profile.AcceptLanguage = "en-GB,en;q=0.9"
 	linkURL := neturl.QueryEscape("https://vk.com/call/join/" + link)
 	nameEnc := neturl.QueryEscape(name)
