@@ -12,6 +12,7 @@ import (
 
 	"github.com/samosvalishe/free-turn-proxy/internal/logx"
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/browserprofile"
+	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk/internal/personanet"
 	"github.com/samosvalishe/free-turn-proxy/internal/randx"
 
 	tlsclient "github.com/bogdanfinn/tls-client"
@@ -322,7 +323,7 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 
 	var lastErr error
 	burns := 0
-	jar := tlsclient.NewCookieJar()
+	jar := personanet.NewCookieJar()
 	for i := 0; i < len(c.credentials); {
 		creds := c.credentials[i]
 		c.log.Infof("[STREAM %d] [VK Auth] Trying credentials: client_id=%s", streamID, creds.ClientID)
@@ -339,7 +340,7 @@ func (c *Client) fetch(ctx context.Context, link string, streamID int) (string, 
 		// куками, пока не кончатся режимы решения captcha.
 		if errors.Is(err, ErrPersonaBurned) && burns < maxPersonaBurns {
 			burns++
-			jar = tlsclient.NewCookieJar()
+			jar = personanet.NewCookieJar()
 			continue
 		}
 		i++

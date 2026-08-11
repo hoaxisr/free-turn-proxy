@@ -11,6 +11,7 @@ import (
 	_ "image/jpeg" // регистрация JPEG-декодера для image.Decode
 	"math"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,7 +34,6 @@ type sliderGuess struct {
 	Score         int64
 	ScoreRGB      int64
 	ScoreLuma     int64
-	ScoreReverse  int64
 	ScoreText     float64
 	ConsensusRank int
 }
@@ -76,6 +76,7 @@ func (s *captchaSession) solveSliderCaptcha(
 	if limit <= 0 {
 		return "", errors.New("slider has no attempts available")
 	}
+	attempts := pickSliderAttempts(guesses, limit)
 	s.logger().Debugf("[Captcha] slider guesses ranked: total=%d limit=%d", len(guesses), limit)
 
 	if err := s.sendComponentDone(sessionToken); err != nil {
@@ -88,15 +89,15 @@ func (s *captchaSession) solveSliderCaptcha(
 	if !s.profile.Touch() {
 		handle = approachFrom(s.profile, s.layout, handle)
 	}
-	for i := 0; i < limit; i++ {
-		s.logger().Debugf("[Captcha] slider attempt %d/%d (guess #%d)", i+1, limit, guesses[i].Index)
+	for i, guess := range attempts {
+		s.logger().Debugf("[Captcha] slider attempt %d/%d (guess #%d)", i+1, len(attempts), guess.Index)
 		answerData, err := json.Marshal(struct {
 			Value []int `json:"value"`
-		}{Value: guesses[i].Swaps})
+		}{Value: guess.Swaps})
 		if err != nil {
 			return "", err
 		}
-		target := s.layout.sliderTarget(guesses[i].Index, len(guesses))
+		target := s.layout.sliderTarget(guess.Index, len(guesses))
 		g := gesture{
 			from:   handle,
 			to:     target,
@@ -108,7 +109,7 @@ func (s *captchaSession) solveSliderCaptcha(
 		}
 		handle = target
 
-		check, err := s.performCaptchaCheck(sessionToken, string(answerData), g)
+		check, err := s.performCaptchaCheck(sessionToken, string(answerData))
 		if err != nil {
 			return "", err
 		}
@@ -233,15 +234,6 @@ func rankSliderGuesses(img image.Image, gridSize int, swaps []int) ([]sliderGues
 		}
 		guesses[idx-1] = sliderGuess{Index: idx, Swaps: active}
 		guesses[idx-1].ScoreLuma = seamScoreLuma(img, gridSize, mapping)
-		if len(active) > 2 {
-			reverseMapping, err := applySliderSwaps(gridSize, reverseSwapPairs(active))
-			if err != nil {
-				return nil, err
-			}
-			guesses[idx-1].ScoreReverse = seamScoreLuma(img, gridSize, reverseMapping)
-		} else {
-			guesses[idx-1].ScoreReverse = guesses[idx-1].ScoreLuma
-		}
 	}
 
 	lumaOrder := append([]sliderGuess(nil), guesses...)
@@ -342,21 +334,9 @@ func rankSliderGuesses(img image.Image, gridSize int, swaps []int) ([]sliderGues
 		textRank[g.Index] = rank
 	}
 
-	reverseOrder := append([]sliderGuess(nil), guesses...)
-	sort.SliceStable(reverseOrder, func(i, j int) bool {
-		if reverseOrder[i].ScoreReverse == reverseOrder[j].ScoreReverse {
-			return reverseOrder[i].Index < reverseOrder[j].Index
-		}
-		return reverseOrder[i].ScoreReverse < reverseOrder[j].ScoreReverse
-	})
-	reverseRank := make(map[int]int, len(reverseOrder))
-	for rank, g := range reverseOrder {
-		reverseRank[g.Index] = rank
-	}
-
 	for i := range guesses {
 		g := &guesses[i]
-		g.ConsensusRank = lumaRank[g.Index] + reverseRank[g.Index]
+		g.ConsensusRank = lumaRank[g.Index]
 		if _, ok := stage2Set[g.Index]; ok {
 			g.ConsensusRank += rgbRank[g.Index] + textRank[g.Index]
 		} else {
@@ -377,10 +357,26 @@ func rankSliderGuesses(img image.Image, gridSize int, swaps []int) ([]sliderGues
 	return guesses, nil
 }
 
-func reverseSwapPairs(swaps []int) []int {
-	out := make([]int, 0, len(swaps))
-	for i := len(swaps) - 2; i >= 0; i -= 2 {
-		out = append(out, swaps[i], swaps[i+1])
+// pickSliderAttempts разносит попытки по дорожке: соседние кандидаты отличаются
+// одним свапом и получают почти равный скор, поэтому вторая попытка рядом с
+// первой промахивается вместе с ней.
+func pickSliderAttempts(guesses []sliderGuess, limit int) []sliderGuess {
+	const minGap = 3
+	out := make([]sliderGuess, 0, limit)
+	taken := func(index, gap int) bool {
+		return slices.ContainsFunc(out, func(g sliderGuess) bool {
+			return absInt(g.Index-index) < gap
+		})
+	}
+	for _, gap := range []int{minGap, 1} {
+		for _, g := range guesses {
+			if len(out) == limit {
+				return out
+			}
+			if !taken(g.Index, gap) {
+				out = append(out, g)
+			}
+		}
 	}
 	return out
 }

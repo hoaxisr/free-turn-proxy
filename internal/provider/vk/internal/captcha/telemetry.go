@@ -3,11 +3,13 @@ package captcha
 // Телеметрия captcha.
 //
 // Виджет заводит setInterval(sensors_delay) и на каждом тике кладёт в аккумулятор
-// последнюю известную позицию указателя (cursor - мышь, taps - палец) плюс
 // navigator.connection.rtt/downlink. Акселерометр пишется отдельным потоком
-// событий Generic Sensor API с частотой 1000/sensors_delay. Позиция обновляется
-// только по событию ввода, поэтому неподвижный указатель даёт цепочку одинаковых
-// сэмплов, а до первого события массив пуст.
+// событий Generic Sensor API с частотой 1000/sensors_delay.
+//
+// Указатель (cursor - мышь, taps - палец) пишется только через externalCoords, а
+// их заполняет либо нативный бридж мобильного SDK, либо хост-страница, если
+// виджет открыт в iframe. Мы ходим на captcha прямой навигацией, без хоста, -
+// в этом режиме виджет живого браузера оставляет оба массива пустыми.
 //
 // В captchaNotRobot.check уходят все семь массивов, даже пустые: значения,
 // которых браузер не дал, виджет просто не кладёт в массив, но сам ключ
@@ -133,32 +135,13 @@ type gesture struct {
 // buildAnalytics собирает аккумулятор так, как его собрал бы живой браузер за
 // elapsed с момента ответа settings: тиков ровно столько, сколько успел сделать
 // таймер, а непокрытые персоной сенсоры остаются пустыми.
-func buildAnalytics(p browserprofile.Profile, cfg sensorConfig, g gesture, elapsed time.Duration) analytics {
+func buildAnalytics(p browserprofile.Profile, cfg sensorConfig, elapsed time.Duration) analytics {
 	ticks := ticksIn(elapsed, cfg.delay)
 	if ticks == 0 {
 		// Таймер не успел тикнуть ни разу - живой виджет отправил бы пустые массивы.
 		return analytics{}
 	}
-	moveTicks := min(max(ticksIn(g.move, cfg.delay), 1), ticks)
-	settleTicks := min(ticksIn(g.settle, cfg.delay), ticks-moveTicks)
-	idleTicks := ticks - moveTicks - settleTicks
-
-	track := make([]point, 0, ticks)
-	if !p.Touch() {
-		// Мышь видна виджету с первого тика: до движения сыплются одинаковые
-		// сэмплы стартовой позиции.
-		track = appendRepeat(track, g.from, idleTicks)
-	}
-	track = append(track, samplePath(g.from, g.to, moveTicks)...)
-	track = appendRepeat(track, track[len(track)-1], settleTicks)
-
 	out := analytics{}
-	switch {
-	case p.Touch() && cfg.taps:
-		out.taps = track
-	case !p.Touch() && cfg.cursor:
-		out.cursor = track
-	}
 	out.connRtt, out.connDownlink = sampleConnection(p.IsMobile(), ticks)
 	if p.Accelerometer() && cfg.accelerometer {
 		out.accelerometer = sampleAccelerometer(ticks)
@@ -171,52 +154,6 @@ func ticksIn(d time.Duration, delay time.Duration) int {
 		return 0
 	}
 	return min(int(d/delay), sensorTicksMax)
-}
-
-func appendRepeat(dst []point, value point, count int) []point {
-	for range count {
-		dst = append(dst, value)
-	}
-	return dst
-}
-
-// samplePath снимает count позиций с дуги from->to: живая рука идёт не по прямой
-// и тормозит у цели, а таймер снимает позицию через равные интервалы.
-func samplePath(from, to point, count int) []point {
-	if count <= 0 {
-		return nil
-	}
-	ctrl := point{
-		X: (from.X+to.X)/2 + randx.Intn(61) - 30,
-		Y: (from.Y+to.Y)/2 - randx.Intn(30) - 10,
-	}
-	points := make([]point, 0, count)
-	for i := 1; i <= count; i++ {
-		t := easeInOut(float64(i) / float64(count))
-		x := quadBezier(float64(from.X), float64(ctrl.X), float64(to.X), t)
-		y := quadBezier(float64(from.Y), float64(ctrl.Y), float64(to.Y), t)
-		// Дрожание руки гаснет к концу движения.
-		jitter := int(math.Round((1-t)*4)) + 1
-		points = append(points, point{
-			X: int(math.Round(x)) + randx.Intn(jitter*2+1) - jitter,
-			Y: int(math.Round(y)) + randx.Intn(jitter*2+1) - jitter,
-		})
-	}
-	points[len(points)-1] = to
-	return points
-}
-
-func quadBezier(p0, p1, p2, t float64) float64 {
-	inv := 1 - t
-	return inv*inv*p0 + 2*t*inv*p1 + t*t*p2
-}
-
-func easeInOut(t float64) float64 {
-	if t < 0.5 {
-		return 2 * t * t
-	}
-	p := -2*t + 2
-	return 1 - p*p/2
 }
 
 // sampleConnection повторяет NetworkInformation: Chrome огрубляет rtt до кратных

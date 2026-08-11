@@ -153,3 +153,58 @@ func (rt *personaRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		Request:       req,
 	}, nil
 }
+
+func ProxyRoundTripper(client tlsclient.HttpClient) http.RoundTripper {
+	return &proxyRoundTripper{client: client}
+}
+
+type proxyRoundTripper struct {
+	client tlsclient.HttpClient
+}
+
+func (rt *proxyRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	var body io.Reader
+	if req.Body != nil {
+		body = req.Body
+	}
+	out, err := fhttp.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+	out.Host = req.Host
+	for name, values := range req.Header {
+		if http.CanonicalHeaderKey(name) == "Accept-Encoding" {
+			continue
+		}
+		for _, v := range values {
+			out.Header.Add(name, v)
+		}
+	}
+
+	// Важное отличие: задаём только порядок, не трогаем User-Agent
+	browserprofile.ApplyProxyFhttp(out)
+
+	resp, err := rt.client.Do(out)
+	if err != nil {
+		return nil, err
+	}
+	header := make(http.Header, len(resp.Header))
+	for name, values := range resp.Header {
+		header[http.CanonicalHeaderKey(name)] = append([]string(nil), values...)
+	}
+	if resp.Uncompressed {
+		header.Del("Content-Encoding")
+		header.Del("Content-Length")
+	}
+	return &http.Response{
+		Status:        resp.Status,
+		StatusCode:    resp.StatusCode,
+		Proto:         resp.Proto,
+		ProtoMajor:    resp.ProtoMajor,
+		ProtoMinor:    resp.ProtoMinor,
+		Header:        header,
+		Body:          resp.Body,
+		ContentLength: resp.ContentLength,
+		Request:       req,
+	}, nil
+}
