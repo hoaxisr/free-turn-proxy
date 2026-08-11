@@ -36,7 +36,7 @@ func TestParseClient_Defaults(t *testing.T) {
 	if c.DNS.Mode != "auto" {
 		t.Errorf("DNS.Mode default: %q", c.DNS.Mode)
 	}
-	if c.VK.StreamsPerCred != defaultStreamsPerCache {
+	if c.VK.StreamsPerCred != DefaultStreamsPerCred {
 		t.Errorf("VK.StreamsPerCred default: %d", c.VK.StreamsPerCred)
 	}
 	if len(c.VK.Links) != 1 || c.VK.Links[0] != "abcdef" {

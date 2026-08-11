@@ -3,6 +3,7 @@ module github.com/samosvalishe/free-turn-proxy
 go 1.26.5
 
 require (
+	github.com/amnezia-vpn/amneziawg-go v0.2.19
 	github.com/bogdanfinn/fhttp v0.6.8
 	github.com/bogdanfinn/tls-client v1.15.1
 	github.com/cbeuw/connutil v1.0.1
@@ -44,6 +45,7 @@ require (
 	golang.org/x/text v0.40.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
 	golang.org/x/tools v0.48.0 // indirect
+	golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2 // indirect
 )
 
 tool golang.org/x/mobile/cmd/gobind

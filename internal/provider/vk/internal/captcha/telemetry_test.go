@@ -12,24 +12,13 @@ func testPersona(plat browserprofile.Platform) browserprofile.Profile {
 	return browserprofile.For(plat, browserprofile.Identity{Seed: "telemetry-test"})
 }
 
-func testGesture(p browserprofile.Profile) gesture {
-	l := layoutFor(p)
-	target := l.sliderTarget(3, 8)
-	return gesture{
-		from:   approachFrom(p, l, target),
-		to:     target,
-		move:   1500 * time.Millisecond,
-		settle: 400 * time.Millisecond,
-	}
-}
-
 // Виджет всегда сериализует все семь ключей аккумулятора: пустой массив - валидный
 // ответ браузера, отсутствующий ключ - невозможное состояние.
 func TestAnalyticsAlwaysSendsAllKeys(t *testing.T) {
 	want := []string{"accelerometer", "gyroscope", "motion", "cursor", "taps", "connectionRtt", "connectionDownlink"}
 	for _, plat := range []browserprofile.Platform{browserprofile.Desktop, browserprofile.Mobile} {
 		p := testPersona(plat)
-		fields := buildAnalytics(p, defaultSensorConfig(), testGesture(p), 4*time.Second).fields()
+		fields := buildAnalytics(p, defaultSensorConfig(), 4*time.Second).fields()
 		if len(fields) != len(want) {
 			t.Fatalf("%s: %d fields, want %d", plat, len(fields), len(want))
 		}
@@ -47,16 +36,15 @@ func TestAnalyticsAlwaysSendsAllKeys(t *testing.T) {
 // Телеметрия не может содержать данных, которых персона физически не соберёт.
 func TestAnalyticsRespectsPersonaCapabilities(t *testing.T) {
 	cases := []struct {
-		plat        browserprofile.Platform
-		wantAccel   bool
-		wantPointer string
+		plat      browserprofile.Platform
+		wantAccel bool
 	}{
-		{browserprofile.Desktop, false, "cursor"},
-		{browserprofile.Mobile, true, "taps"},
+		{browserprofile.Desktop, false},
+		{browserprofile.Mobile, true},
 	}
 	for _, tc := range cases {
 		p := testPersona(tc.plat)
-		data := buildAnalytics(p, defaultSensorConfig(), testGesture(p), 4*time.Second)
+		data := buildAnalytics(p, defaultSensorConfig(), 4*time.Second)
 
 		if len(data.connRtt) == 0 {
 			t.Fatalf("%s: NetworkInformation отсутствует", tc.plat)
@@ -70,37 +58,34 @@ func TestAnalyticsRespectsPersonaCapabilities(t *testing.T) {
 		if len(data.gyroscope) != 0 || len(data.motion) != 0 {
 			t.Fatalf("%s: web-персона не может дать gyroscope/motion", tc.plat)
 		}
-		if tc.wantPointer == "cursor" && (len(data.cursor) == 0 || len(data.taps) != 0) {
-			t.Fatalf("%s: мышь обязана писать cursor и не писать taps", tc.plat)
-		}
-		if tc.wantPointer == "taps" && (len(data.taps) == 0 || len(data.cursor) != 0) {
-			t.Fatalf("%s: тач обязан писать taps и не писать cursor", tc.plat)
+	}
+}
+
+// Указатель пишется только через externalCoords, а их заполняет хост-страница или
+// нативный бридж. При прямой навигации виджет живого браузера оставляет cursor и
+// taps пустыми - и мы обязаны делать то же.
+func TestAnalyticsLeavesPointerEmpty(t *testing.T) {
+	for _, plat := range []browserprofile.Platform{browserprofile.Desktop, browserprofile.Mobile} {
+		p := testPersona(plat)
+		data := buildAnalytics(p, defaultSensorConfig(), 10*time.Second)
+		if len(data.cursor) != 0 || len(data.taps) != 0 {
+			t.Fatalf("%s: cursor %d, taps %d, want 0", plat, len(data.cursor), len(data.taps))
 		}
 	}
 }
 
 // Число сэмплов задаёт таймер виджета: сколько тиков уместилось в реальное время
-// сессии, столько и точек. Мышь видна с первого тика, палец - только с касания.
+// сессии, столько и точек.
 func TestAnalyticsSampleCountFollowsElapsed(t *testing.T) {
 	cfg := sensorConfig{delay: 100 * time.Millisecond, cursor: true, taps: true, accelerometer: true}
 	elapsed := 5 * time.Second
 	ticks := int(elapsed / cfg.delay)
 
-	desktop := testPersona(browserprofile.Desktop)
-	data := buildAnalytics(desktop, cfg, testGesture(desktop), elapsed)
-	if len(data.cursor) != ticks || len(data.connRtt) != ticks {
-		t.Fatalf("desktop: cursor %d, conn %d, want %d", len(data.cursor), len(data.connRtt), ticks)
-	}
-
-	mobile := testPersona(browserprofile.Mobile)
-	g := testGesture(mobile)
-	data = buildAnalytics(mobile, cfg, g, elapsed)
-	gestureTicks := int((g.move + g.settle) / cfg.delay)
-	if len(data.taps) > gestureTicks+1 || len(data.taps) == 0 {
-		t.Fatalf("mobile: taps %d, want <= %d (только время касания)", len(data.taps), gestureTicks+1)
-	}
-	if len(data.connRtt) != ticks {
-		t.Fatalf("mobile: conn %d, want %d", len(data.connRtt), ticks)
+	for _, plat := range []browserprofile.Platform{browserprofile.Desktop, browserprofile.Mobile} {
+		data := buildAnalytics(testPersona(plat), cfg, elapsed)
+		if len(data.connRtt) != ticks {
+			t.Fatalf("%s: conn %d, want %d", plat, len(data.connRtt), ticks)
+		}
 	}
 }
 
@@ -116,7 +101,7 @@ func TestAnalyticsHonoursSensorList(t *testing.T) {
 	}
 
 	p := testPersona(browserprofile.Mobile)
-	data := buildAnalytics(p, cfg, testGesture(p), 3*time.Second)
+	data := buildAnalytics(p, cfg, 3*time.Second)
 	if len(data.taps) != 0 || len(data.accelerometer) != 0 {
 		t.Fatalf("taps %d, accelerometer %d: сервер их не слушает", len(data.taps), len(data.accelerometer))
 	}
@@ -126,7 +111,7 @@ func TestAnalyticsHonoursSensorList(t *testing.T) {
 func TestAnalyticsWithoutTicksIsEmpty(t *testing.T) {
 	p := testPersona(browserprofile.Mobile)
 	cfg := sensorConfig{delay: 2 * time.Second, cursor: true, taps: true, accelerometer: true}
-	data := buildAnalytics(p, cfg, testGesture(p), 500*time.Millisecond)
+	data := buildAnalytics(p, cfg, 500*time.Millisecond)
 	for _, kv := range data.fields() {
 		if kv[1] != "[]" {
 			t.Fatalf("field %q = %s, want []", kv[0], kv[1])
@@ -142,19 +127,6 @@ func TestParseSensorConfigFallsBackToDefaults(t *testing.T) {
 	clamped := parseSensorConfig(map[string]any{"response": map[string]any{"sensors_delay": float64(1)}})
 	if clamped.delay != sensorDelayFloor {
 		t.Fatalf("delay = %s, want clamp to %s", clamped.delay, sensorDelayFloor)
-	}
-}
-
-// Координаты указателя обязаны лежать внутри окна, заявленного в componentDone.
-func TestPointerStaysInsideViewport(t *testing.T) {
-	for _, plat := range []browserprofile.Platform{browserprofile.Desktop, browserprofile.Mobile} {
-		p := testPersona(plat)
-		data := buildAnalytics(p, defaultSensorConfig(), testGesture(p), 4*time.Second)
-		for _, pt := range append(append([]point{}, data.cursor...), data.taps...) {
-			if pt.X < 0 || pt.Y < 0 || pt.X > p.Viewport.W || pt.Y > p.Viewport.H {
-				t.Fatalf("%s: точка %+v вне окна %+v", plat, pt, p.Viewport)
-			}
-		}
 	}
 }
 

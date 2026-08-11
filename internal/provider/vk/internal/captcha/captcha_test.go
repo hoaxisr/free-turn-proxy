@@ -138,15 +138,48 @@ func TestCaptchaDomainFromRedirectURI(t *testing.T) {
 	}
 }
 
-func TestReverseSwapPairs(t *testing.T) {
-	got := reverseSwapPairs([]int{1, 2, 3, 4, 5, 6})
-	want := []int{5, 6, 3, 4, 1, 2}
-	if len(got) != len(want) {
-		t.Fatalf("len = %d, want %d", len(got), len(want))
+func TestPickSliderAttempts(t *testing.T) {
+	tests := []struct {
+		name    string
+		indexes []int
+		limit   int
+		want    []int
+	}{
+		{
+			name:    "skips neighbours of the top guess",
+			indexes: []int{20, 19, 21, 18, 40, 5},
+			limit:   2,
+			want:    []int{20, 40},
+		},
+		{
+			name:    "falls back to neighbours when nothing is far enough",
+			indexes: []int{20, 19, 21},
+			limit:   3,
+			want:    []int{20, 19, 21},
+		},
+		{
+			name:    "limit above candidate count",
+			indexes: []int{7},
+			limit:   4,
+			want:    []int{7},
+		},
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("reverseSwapPairs = %v, want %v", got, want)
-		}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			guesses := make([]sliderGuess, 0, len(tt.indexes))
+			for _, idx := range tt.indexes {
+				guesses = append(guesses, sliderGuess{Index: idx})
+			}
+			got := pickSliderAttempts(guesses, tt.limit)
+			if len(got) != len(tt.want) {
+				t.Fatalf("len = %d, want %d", len(got), len(tt.want))
+			}
+			for i := range tt.want {
+				if got[i].Index != tt.want[i] {
+					t.Fatalf("attempts = %v, want %v", got, tt.want)
+				}
+			}
+		})
 	}
 }

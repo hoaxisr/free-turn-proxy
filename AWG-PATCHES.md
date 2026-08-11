@@ -1,8 +1,17 @@
-# AWG Manager patches (based on upstream v2.0.1)
+# AWG Manager patches (based on upstream v2.1.1)
 
 Forked for router-friendly **auto-only** VK Smart Captcha.
 
-## Changes vs samosvalishe/free-turn-proxy v2.0.1
+## Changes vs samosvalishe/free-turn-proxy v2.1.1
+
+> Перенос 2.0.1 → 2.1.1 (2026-08-11). Апстрим вынес запуск клиента в
+> `internal/session` и сам инжектит ручной решатель параметром `Deps.Solver`
+> из `cmd/client/main.go` — наш пункт 5 сжался до «Solver=nil, если нет
+> `-manual-captcha`». Флаг `-captcha-manual-fallback` убран: awg-manager его
+> никогда не передавал (`buildClientArgs`: только авто-капча), а механизм
+> «auto-раунды, потом браузер» жив и включается самим фактом переданного
+> решателя (`manualFallback := c.manualSolve != nil && !c.manualOnly`).
+> Остальные патчи легли на 2.1.1 без изменений.
 
 > Перенос 1.8.0 → 2.0.1 (2026-07-29). Апстрим сам реализовал часть наших
 > доработок, причём аккуратнее, — они убраны из форка:
@@ -37,9 +46,8 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
    - Exhausted auto captcha with 0 connected streams → 60s lockout + `CAPTCHA_WAIT_REQUIRED` (retry), not process kill
 
 5. **Manual captcha disabled by default**
-   - No `:8765` HTTP server unless `-captcha-manual-fallback` or `-manual-captcha`
+   - `cmd/client/main.go` передаёт `Deps.Solver = nil`, если не задан `-manual-captcha`: без решателя `:8765` не поднимается
    - `-manual-captcha` = manual-only (legacy)
-   - `-captcha-manual-fallback` = auto rounds then browser on localhost (not recommended on Keenetic)
 
 6. **Log timestamps in router TZ (`internal/tzfix`)**
    - awg-manager launches freeturn with `TZ=<POSIX string from Keenetic /etc/TZ>`, e.g. `MSK-3` — not an IANA name.
@@ -50,16 +58,11 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 
 ## Build
 
-From awg-manager repo root:
-
-```bash
-./scripts/build-freeturn-client.sh        # all arches
-./scripts/build-freeturn-client.sh arm64  # router aarch64
-```
-
-Output: `prebuilt/freeturn/client-linux-*` and `server-linux-*`
-
-Version baked in: `1.8.0-3` (`main.version` ldflag)
+Роутерные бинари собирает `.github/workflows/release.yml` по тегу `vX.Y.Z-N`
+(arm64 / mipsle-softfloat / mips-softfloat, `-trimpath`, `main.version=X.Y.Z-N`)
+и кладёт в релиз вместе с `checksums.txt`. Эти же артефакты идут на зеркало
+`repo.hoaxisr.ru/ft/<версия>/`, а их SHA256 — в `internal/freeturn/install.go`
+awg-manager.
 
 7. **VKCalls auth path (1.8.0-3, WDTT-inspired)**
    - Before legacy `calls.getAnonymousToken` (+ captcha), try `api.vk.me` flow:

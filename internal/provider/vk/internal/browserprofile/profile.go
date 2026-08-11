@@ -94,8 +94,9 @@ type device struct {
 	NotificationsPermission string `json:"notificationsPermission"`
 }
 
-// Порядок заголовков h2 для fetch/XHR. Отсутствующие в запросе имена fhttp
-// пропускает, поэтому один список покрывает GET и POST.
+// Порядок заголовков h2. Отсутствующие в запросе имена fhttp пропускает, поэтому
+// один список покрывает и навигацию (upgrade-insecure-requests, sec-fetch-user),
+// и fetch/XHR (origin, content-type).
 var chromeHeaderOrder = []string{
 	"content-length",
 	"sec-ch-ua-platform",
@@ -103,14 +104,17 @@ var chromeHeaderOrder = []string{
 	"sec-ch-ua",
 	"content-type",
 	"sec-ch-ua-mobile",
+	"upgrade-insecure-requests",
 	"accept",
 	"origin",
 	"sec-fetch-site",
 	"sec-fetch-mode",
+	"sec-fetch-user",
 	"sec-fetch-dest",
 	"referer",
 	"accept-encoding",
 	"accept-language",
+	"cookie",
 	"priority",
 }
 
@@ -228,6 +232,15 @@ func ApplyFhttp(req *fhttp.Request, profile Profile) {
 	req.Header.Set("sec-ch-ua-mobile", profile.SecChUaMobile)
 	req.Header.Set("sec-ch-ua-platform", profile.SecChUaPlatform)
 	req.Header.Set("Accept-Language", profile.AcceptLanguage)
-	req.Header.Set("Priority", "u=1, i")
+	// Навигация документа идёт с нулевым приоритетом, u=1 - профиль fetch/XHR.
+	if req.Header.Get("Sec-Fetch-Dest") == "document" {
+		req.Header.Set("Priority", "u=0, i")
+	} else {
+		req.Header.Set("Priority", "u=1, i")
+	}
+	req.Header[fhttp.HeaderOrderKey] = chromeHeaderOrder
+}
+
+func ApplyProxyFhttp(req *fhttp.Request) {
 	req.Header[fhttp.HeaderOrderKey] = chromeHeaderOrder
 }

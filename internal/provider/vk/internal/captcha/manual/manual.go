@@ -68,7 +68,22 @@ func localCaptchaHosts() []string {
 	}
 }
 
+// blockedProxyHosts - реклама и внешняя телеметрия. Всё, что не в allowed, и так
+// не проксируется; список нужен для хостов под доменами VK, которые иначе прошли
+// бы по суффиксу. Captcha без них решается: adFp тогда пустой, ровно как у
+// браузера с блокировщиком.
+var blockedProxyHosts = []string{
+	"ads.vk.com", "ads.vk.ru",
+	"top-fwz1.mail.ru", "r0.mradx.net",
+	"sdk-api.apptracer.ru", "stats.vk-portal.net",
+}
+
 func isAllowedProxyHost(hostname string) bool {
+	for _, blocked := range blockedProxyHosts {
+		if strings.EqualFold(hostname, blocked) {
+			return false
+		}
+	}
 	allowed := []string{
 		".vk.com", ".vk.ru", ".vkontakte.ru",
 		".userapi.com", ".okcdn.ru", ".mycdn.me",
@@ -444,7 +459,7 @@ func solveViaProxy(ctx context.Context, redirectURI string, dialer net.Dialer, p
 	if err != nil {
 		return "", fmt.Errorf("captcha proxy client: %w", err)
 	}
-	transport := &loggingTransport{rt: personanet.RoundTripper(client, profile)}
+	transport := &loggingTransport{rt: personanet.ProxyRoundTripper(client)}
 
 	proxy := &httputil.ReverseProxy{
 		Transport: transport,
