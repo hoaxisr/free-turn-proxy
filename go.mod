@@ -28,6 +28,7 @@ require (
 	github.com/bogdanfinn/utls v1.7.7-barnius // indirect
 	github.com/bogdanfinn/websocket v1.5.5-barnius // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
+	github.com/hoaxisr/awg-manager/awgmproto v0.1.0
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/klauspost/reedsolomon v1.14.1 // indirect

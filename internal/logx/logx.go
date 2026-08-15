@@ -3,7 +3,10 @@
 // Debugf управляется debug-флагом, остальные уровни всегда пишут.
 package logx
 
-import "log"
+import (
+	"fmt"
+	"log"
+)
 
 // Logger - интерфейс уровневого логирования.
 // Debugf гейтится debug-флагом конструктора; остальные уровни печатают всегда.
@@ -35,10 +38,24 @@ func (l *stdLogger) Debugf(format string, v ...any) {
 		log.Printf("[DEBUG] "+format, v...)
 	}
 }
-func (*stdLogger) Infof(format string, v ...any)  { log.Printf("[INFO] "+format, v...) }
-func (*stdLogger) Warnf(format string, v ...any)  { log.Printf("[WARN] "+format, v...) }
-func (*stdLogger) Errorf(format string, v ...any) { log.Printf("[ERROR] "+format, v...) }
-func (l *stdLogger) DebugEnabled() bool           { return l.debug }
+func (*stdLogger) Infof(format string, v ...any) { log.Printf("[INFO] "+format, v...) }
+func (*stdLogger) Warnf(format string, v ...any) { log.Printf("[WARN] "+format, v...) }
+
+// OnError — хук обвязки awg-manager: последняя ошибка уезжает в state и будит
+// реконсиляцию. nil при ручном запуске.
+//
+// Пишется один раз из main до старта горутин, читается отовсюду — поэтому
+// именно переменная, а не сеттер: сеттер обещал бы потокобезопасность, которой
+// тут нет и не нужно.
+var OnError func(string)
+
+func (*stdLogger) Errorf(format string, v ...any) {
+	log.Printf("[ERROR] "+format, v...)
+	if OnError != nil {
+		OnError(fmt.Sprintf(format, v...))
+	}
+}
+func (l *stdLogger) DebugEnabled() bool { return l.debug }
 
 // OrNop возвращает l, если он не nil, иначе Nop. Используется в конструкторах
 // пакетов, принимающих nullable Logger.

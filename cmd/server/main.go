@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/pion/dtls/v3"
+	"github.com/samosvalishe/free-turn-proxy/internal/awgmctl"
 	"github.com/samosvalishe/free-turn-proxy/internal/clientsdb"
 	"github.com/samosvalishe/free-turn-proxy/internal/config"
 	"github.com/samosvalishe/free-turn-proxy/internal/logx"
@@ -32,12 +33,13 @@ var version = "dev"
 func main() {
 	tzfix.Apply() // до логгера/горутин: TZ роутера — POSIX, Go его из env не парсит
 
+	awgmArgs := awgmctl.Setup("freeturn-server", "server")
 	if len(os.Args) >= 2 && os.Args[1] == "clients" {
 		handleClientsCommand(os.Args[2:])
 		return
 	}
 
-	cfg, err := config.ParseServer(os.Args[1:], os.Stderr)
+	cfg, err := config.ParseServer(awgmArgs, os.Stderr)
 	if err != nil {
 		// -help/-h: usage уже напечатан в ParseServer, выходим штатно.
 		if errors.Is(err, flag.ErrHelp) {
@@ -47,6 +49,7 @@ func main() {
 		log.Fatalf("%v", err)
 	}
 	logger := logx.New(cfg.Log.Debug)
+	logx.OnError = func(msg string) { awgmctl.SetError(msg, false) }
 	logger.Infof("Free Turn Proxy server version=%s", version)
 
 	if cfg.Obf.GenKey {
@@ -65,6 +68,7 @@ func main() {
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-signalChan
+		awgmctl.PushExit(0)
 		logger.Infof("Terminating...")
 		cancel()
 		select {

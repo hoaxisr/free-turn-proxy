@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/samosvalishe/free-turn-proxy/internal/awgmctl"
 	"github.com/samosvalishe/free-turn-proxy/internal/clientid"
 	"github.com/samosvalishe/free-turn-proxy/internal/config"
 	"github.com/samosvalishe/free-turn-proxy/internal/logx"
@@ -28,7 +29,7 @@ var version = "dev"
 func main() {
 	tzfix.Apply() // до логгера/горутин: TZ роутера — POSIX, Go его из env не парсит
 
-	args := os.Args[1:]
+	args := awgmctl.Setup("freeturn-client", "client")
 
 	// -sub: тянем список серверов до парсинга и подсовываем URI первой ноды
 	// (Nodes[0], без failover) позиционным freeturn:// - ParseClient применит его
@@ -67,6 +68,7 @@ func main() {
 	}
 
 	logger := logx.New(cfg.Log.Debug)
+	logx.OnError = func(msg string) { awgmctl.SetError(msg, false) }
 	logger.Infof("Free Turn Proxy client version=%s", version)
 
 	idPaths := clientid.DefaultPaths()
@@ -88,6 +90,7 @@ func main() {
 	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
 		<-signalChan
+		awgmctl.PushExit(0)
 		logger.Infof("Terminating...")
 		cancel()
 		select {
