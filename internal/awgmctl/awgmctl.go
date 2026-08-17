@@ -15,8 +15,6 @@ import (
 	"github.com/hoaxisr/awg-manager/awgmproto"
 )
 
-const awgmCapPeriod = 30 * time.Second
-
 var (
 	awgmOpts    awgmproto.Options
 	awgmSrv     *awgmproto.Server
@@ -103,7 +101,7 @@ func Setup(impl, role string) []string {
 			// Журнал не закрывается намеренно: после RedirectStdio он живёт
 			// дескрипторами 1 и 2 до конца процесса, а ссылку на сам объект
 			// держит горутина потолка.
-			go lg.WatchCap(context.Background(), awgmCapPeriod)
+			go lg.WatchCap(context.Background(), awgmproto.CapPeriod)
 		}
 	}
 
