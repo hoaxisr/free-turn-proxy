@@ -18,6 +18,7 @@ import (
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/udprelay"
 	"github.com/samosvalishe/free-turn-proxy/internal/session"
+	"github.com/samosvalishe/free-turn-proxy/internal/statedir"
 	"github.com/samosvalishe/free-turn-proxy/internal/sub"
 	"github.com/samosvalishe/free-turn-proxy/internal/tzfix"
 	"github.com/samosvalishe/free-turn-proxy/internal/wire/rtpopus"
@@ -28,6 +29,10 @@ var version = "dev"
 
 func main() {
 	tzfix.Apply() // до логгера/горутин: TZ роутера — POSIX, Go его из env не парсит
+
+	// AWG-патч: состояние (client_config.json, vk_persona.json) по умолчанию
+	// ложится рядом с бинарём — на роутере это /opt/bin на флеше.
+	statedir.SetDir(os.Getenv("FREETURN_STATE_DIR"))
 
 	args := awgmctl.Setup("freeturn-client", "client")
 

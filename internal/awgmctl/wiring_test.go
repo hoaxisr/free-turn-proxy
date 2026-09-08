@@ -33,6 +33,7 @@ import (
 func TestClientWiring(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "freeturn-client-client-c1.sock")
+	t.Setenv("FREETURN_STATE_DIR", dir)
 	args := []string{
 		"-peer", "127.0.0.1:9",
 		"-links", "https://vk.ru/call/join/x",
@@ -54,6 +55,10 @@ func TestClientWiring(t *testing.T) {
 	}
 	if want := awgmproto.ConfigHash(args); hello["config_hash"] != want {
 		t.Fatalf("config_hash=%v, менеджер посчитает %s", hello["config_hash"], want)
+	}
+	// client_config.json пишется до hello: без FREETURN_STATE_DIR он лёг бы рядом с бинарём.
+	if _, err := os.Stat(filepath.Join(dir, "client_config.json")); err != nil {
+		t.Fatalf("FREETURN_STATE_DIR не применён: %v", err)
 	}
 
 	ev := readEvent(t, c, awgmproto.EventError)
