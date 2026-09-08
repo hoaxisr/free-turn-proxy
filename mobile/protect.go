@@ -1,30 +1,36 @@
 package mobile
 
 import (
+	"sync/atomic"
 	"syscall"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/netctl"
 )
 
-// Protector is implemented by the host to keep the client's own sockets out of
-// a VPN tunnel it is feeding. On Android that is VpnService.protect(fd); on
-// other tun-based hosts the equivalent. Without it the client's TURN / VK API /
-// DNS traffic is routed back into the tunnel and the connection deadlocks.
+// Protector реализуется хостом для исключения сокетов клиента из VPN-туннеля (VpnService.protect).
+// Без этого TURN / VK API / DNS трафик заворачивается обратно в туннель.
 type Protector interface {
-	// Protect is invoked once for every outbound socket the client opens, with
-	// the socket's raw file descriptor, before it connects.
 	Protect(fd int) bool
 }
 
-// SetProtect installs the host socket protector. Pass nil to clear it (the
-// default is a no-op, so desktop builds are unaffected). May be called before
-// or after Start; it is read at dial time.
+var protector atomic.Pointer[Protector]
+
+// SetProtect устанавливает обработчик защиты сокетов хоста (nil - no-op).
 func SetProtect(p Protector) {
 	if p == nil {
+		protector.Store(nil)
 		netctl.SetControl(nil)
 		return
 	}
+	protector.Store(&p)
 	netctl.SetControl(func(_, _ string, c syscall.RawConn) error {
 		return c.Control(func(fd uintptr) { p.Protect(int(fd)) })
 	})
+}
+
+func protectFD(fd int) bool {
+	if p := protector.Load(); p != nil {
+		return (*p).Protect(fd)
+	}
+	return false
 }

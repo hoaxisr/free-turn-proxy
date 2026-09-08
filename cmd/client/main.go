@@ -18,6 +18,7 @@ import (
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/udprelay"
 	"github.com/samosvalishe/free-turn-proxy/internal/session"
+	"github.com/samosvalishe/free-turn-proxy/internal/statedir"
 	"github.com/samosvalishe/free-turn-proxy/internal/sub"
 	"github.com/samosvalishe/free-turn-proxy/internal/tzfix"
 	"github.com/samosvalishe/free-turn-proxy/internal/wire/rtpopus"
@@ -29,12 +30,13 @@ var version = "dev"
 func main() {
 	tzfix.Apply() // до логгера/горутин: TZ роутера — POSIX, Go его из env не парсит
 
+	// AWG-патч: состояние (client_config.json, vk_persona.json) по умолчанию
+	// ложится рядом с бинарём — на роутере это /opt/bin на флеше.
+	statedir.SetDir(os.Getenv("FREETURN_STATE_DIR"))
+
 	args := awgmctl.Setup("freeturn-client", "client")
 
-	// -sub: тянем список серверов до парсинга и подсовываем URI первой ноды
-	// (Nodes[0], без failover) позиционным freeturn:// - ParseClient применит его
-	// тем же путём, что и URI из CLI. Подписка должна стоять до парсинга: она даёт
-	// peer, без которого ParseClient падает на валидации.
+	// Резолв подписки до парсинга даёт обязательный peer для валидации.
 	if subURL := config.PeekSubURL(args); subURL != "" {
 		s, ferr := sub.Fetch(context.Background(), subURL)
 		if ferr != nil {
@@ -48,16 +50,12 @@ func main() {
 
 	cfg, err := config.ParseClient(args, os.Stderr)
 	if err != nil {
-		// -help/-h: usage уже напечатан в ParseClient, выходим штатно.
 		if errors.Is(err, flag.ErrHelp) {
 			os.Exit(0)
 		}
-		// логгер ещё не создан - единственный fatal до его инициализации.
 		log.Fatalf("%v", err)
 	}
 
-	// До резолва client ID: генерация ключа - чистая утилита, файлов после себя
-	// оставлять не должна.
 	if cfg.Obf.GenKey {
 		key, gerr := rtpopus.GenKeyHex()
 		if gerr != nil {

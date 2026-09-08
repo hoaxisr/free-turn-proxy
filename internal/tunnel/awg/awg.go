@@ -1,34 +1,28 @@
-// Package awg - реализация tunnel.Backend на amneziawg-go.
-//
-// Форк выбран единственной зависимостью: с пустыми параметрами маскировки он
-// ведёт себя как обычный WireGuard, поэтому режимы wg и awg обслуживаются одним
-// устройством вместо двух почти одинаковых кодовых баз.
+// Package awg реализует tunnel.Backend поверх amneziawg-go.
 package awg
 
 import (
 	"errors"
+	"fmt"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/device"
+	"github.com/amnezia-vpn/amneziawg-go/v3/conn"
+	"github.com/amnezia-vpn/amneziawg-go/v3/device"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/logx"
 	"github.com/samosvalishe/free-turn-proxy/internal/tunnel"
 )
 
-// Deps - зависимости бэкенда.
 type Deps struct {
-	// Bind - канал, по которому устройство разговаривает с той стороной.
-	// nil даёт обычный UDP-сокет; клиент передаёт tunnel.SinglePeerBind поверх
-	// пары в памяти, соединённой с релеем.
 	Bind conn.Bind
 	Log  logx.Logger
+	// Protect исключает сокеты bind из туннеля (VpnService.protect); nil - бэкенд поверх пайпа релея.
+	Protect func(fd int) bool
 }
 
-// Backend управляет поднятием одного userspace-устройства.
 type Backend struct {
 	deps Deps
 
@@ -36,7 +30,6 @@ type Backend struct {
 	dev *device.Device
 }
 
-// Устройство создается только в Up.
 func New(deps Deps) *Backend {
 	deps.Log = logx.OrNop(deps.Log)
 	return &Backend{deps: deps}
@@ -45,16 +38,18 @@ func New(deps Deps) *Backend {
 func (b *Backend) Up(cfg *tunnel.Config, tunFD int) error {
 	uapi, err := tunnel.UAPI(cfg)
 	if err != nil {
+		CloseTUNFD(tunFD)
 		return err
 	}
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	if b.dev != nil {
+		CloseTUNFD(tunFD)
 		return errors.New("awg: tunnel is already up")
 	}
 
-	tunDev, err := openTUN(tunFD, cfg.MTU)
+	tunDev, err := openTUN(tunFD)
 	if err != nil {
 		return err
 	}
@@ -65,8 +60,6 @@ func (b *Backend) Up(cfg *tunnel.Config, tunFD int) error {
 	}
 
 	dev := device.NewDevice(tunDev, bind, b.logger())
-	// Endpoint пира фиксирован: с SinglePeerBind собеседник один, и роуминг по
-	// адресу источника только сбивал бы устройство с толку.
 	dev.DisableSomeRoamingForBrokenMobileSemantics()
 
 	if err := dev.IpcSet(uapi); err != nil {
@@ -78,6 +71,8 @@ func (b *Backend) Up(cfg *tunnel.Config, tunFD int) error {
 		return err
 	}
 
+	b.protectBind(dev)
+
 	b.dev = dev
 	mode := "wg"
 	if cfg.Amnezia.Enabled() {
@@ -87,7 +82,51 @@ func (b *Backend) Up(cfg *tunnel.Config, tunFD int) error {
 	return nil
 }
 
-// Down опускает туннель и закрывает tun-дескриптор. Повторный вызов безопасен.
+func (b *Backend) Rebind() error {
+	b.mu.Lock()
+	dev := b.dev
+	b.mu.Unlock()
+
+	if dev == nil {
+		return nil
+	}
+	if err := dev.BindUpdate(); err != nil {
+		return fmt.Errorf("awg: bind update: %w", err)
+	}
+	b.protectBind(dev)
+	b.deps.Log.Infof("tunnel: rebound")
+	return nil
+}
+
+func (b *Backend) protectBind(dev *device.Device) {
+	if b.deps.Protect == nil {
+		return
+	}
+	peek, ok := dev.Bind().(conn.PeekLookAtSocketFd)
+	if !ok {
+		b.deps.Log.Warnf("tunnel: bind does not expose socket fd, protect skipped")
+		return
+	}
+	protected := 0
+	if fd, err := peek.PeekLookAtSocketFd4(); err == nil {
+		if b.deps.Protect(fd) {
+			protected++
+		} else {
+			b.deps.Log.Warnf("tunnel: failed to protect ipv4 socket fd=%d", fd)
+		}
+	}
+	if fd, err := peek.PeekLookAtSocketFd6(); err == nil {
+		if b.deps.Protect(fd) {
+			protected++
+		} else {
+			b.deps.Log.Warnf("tunnel: failed to protect ipv6 socket fd=%d", fd)
+		}
+	}
+	if protected == 0 {
+		b.deps.Log.Warnf("tunnel: no bind socket protected")
+	}
+}
+
 func (b *Backend) Down() error {
 	b.mu.Lock()
 	dev := b.dev
@@ -102,7 +141,7 @@ func (b *Backend) Down() error {
 	return nil
 }
 
-// Stats читает счётчики устройства. До первого Up возвращает нули.
+// Stats возвращает текущие счетчики трафика туннеля.
 func (b *Backend) Stats() (tunnel.Stats, error) {
 	b.mu.Lock()
 	dev := b.dev
@@ -118,8 +157,6 @@ func (b *Backend) Stats() (tunnel.Stats, error) {
 	return parseStats(raw), nil
 }
 
-// parseStats суммирует счётчики по всем пирам: пир обычно один, но складывать
-// дешевле, чем объяснять, почему берётся первый.
 func parseStats(uapi string) tunnel.Stats {
 	var st tunnel.Stats
 	var handshakeSec int64
@@ -150,8 +187,6 @@ func parseStats(uapi string) tunnel.Stats {
 	return st
 }
 
-// logger переводит вывод устройства в наш логгер: Verbosef уходит в debug,
-// чтобы обычный лог не тонул в пакетной трассировке.
 func (b *Backend) logger() *device.Logger {
 	return &device.Logger{
 		Verbosef: b.deps.Log.Debugf,
