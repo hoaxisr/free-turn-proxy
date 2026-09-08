@@ -74,12 +74,11 @@ PersistentKeepalive = 25
 	if len(cfg.Addresses) != 2 {
 		t.Errorf("Addresses = %v", cfg.Addresses)
 	}
-	// example.org - search domain, а не резолвер: в DNS попасть не должен.
 	if len(cfg.DNS) != 2 {
 		t.Errorf("DNS = %v, want two addresses", cfg.DNS)
 	}
 	peer := cfg.Peers[0]
-	if peer.PresharedKey.IsZero() || peer.Endpoint != "1.2.3.4:51820" || peer.Keepalive != 25 {
+	if peer.PresharedKey.IsZero() || peer.Endpoint != "1.2.3.4:51820" || peer.Keepalive != "25" {
 		t.Errorf("peer = %+v", peer)
 	}
 	if len(peer.AllowedIPs) != 2 {
@@ -88,8 +87,6 @@ PersistentKeepalive = 25
 }
 
 func TestParseAmneziaParams(t *testing.T) {
-	// awg-параметры живут в [Interface], поэтому конфиг собирается вручную:
-	// после секции [Peer] те же ключи относились бы к пиру.
 	conf := "[Interface]\nPrivateKey = " + privKey + "\n" +
 		"Jc = 4\nJmin = 40\nJmax = 70\nS1 = 15\nS2 = 22\n" +
 		"H1 = 1\nH2 = 2-5\nH3 = 3\nH4 = 4\nI1 = <b 0xf1><c>\nI5 = <r 10>\n\n" +
@@ -140,7 +137,6 @@ func TestParseCaseInsensitiveKeys(t *testing.T) {
 	}
 }
 
-// Голый адрес без маски клиенты пишут наравне с CIDR.
 func TestParseBareAddress(t *testing.T) {
 	conf := "[Interface]\nPrivateKey = " + privKey + "\nAddress = 10.8.0.2\n\n" +
 		"[Peer]\nPublicKey = " + pubKey + "\nAllowedIPs = 0.0.0.0/0\n"
@@ -159,8 +155,8 @@ func TestParseKeepaliveOff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse() error = %v", err)
 	}
-	if cfg.Peers[0].Keepalive != 0 {
-		t.Errorf("Keepalive = %d, want 0", cfg.Peers[0].Keepalive)
+	if cfg.Peers[0].Keepalive != "" {
+		t.Errorf("Keepalive = %q, want empty", cfg.Peers[0].Keepalive)
 	}
 }
 
@@ -193,7 +189,6 @@ func TestParseErrors(t *testing.T) {
 	}
 }
 
-// Разобранный конфиг обязан доходить до UAPI без дополнительной обработки.
 func TestParseFeedsUAPI(t *testing.T) {
 	cfg, err := Parse(minimalConf())
 	if err != nil {
@@ -205,5 +200,100 @@ func TestParseFeedsUAPI(t *testing.T) {
 	}
 	if !strings.Contains(uapi, "allowed_ip=0.0.0.0/0\n") {
 		t.Errorf("UAPI() = %s", uapi)
+	}
+}
+
+func TestParseAWG3Params(t *testing.T) {
+	hpKey := base64.StdEncoding.EncodeToString(bytesOf(0x04))
+	text := "[Interface]\nPrivateKey = " + privKey + "\nAddress = 10.8.0.2/32\n" +
+		"S1 = 12\nS2 = 12\nS3 = 12\nS4 = 12\n" +
+		"HeaderProtectionKey = " + hpKey + "\n" +
+		"ContentPaddingAddition = 10-40\n" +
+		"RekeyAfterTime = 90-140\nRekeyTimeout = 5\nRejectAfterTime = 180\n" +
+		"KeepaliveTimeout = 10-15\nMaxHandshakeAttempts = 18\n" +
+		"RandomTrailers = true\nDisableCookies = 1\n\n" +
+		"[Peer]\nPublicKey = " + pubKey + "\nAllowedIPs = 0.0.0.0/0\n"
+
+	cfg, err := Parse(text)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	p := cfg.Amnezia
+	if p.HeaderProtectionKey != tunnel.Key(bytesOf(0x04)) {
+		t.Error("HeaderProtectionKey not parsed")
+	}
+	for _, kv := range []struct{ got, want string }{
+		{p.ContentPaddingAddition, "10-40"},
+		{p.RekeyAfterTime, "90-140"},
+		{p.RekeyTimeout, "5"},
+		{p.RejectAfterTime, "180"},
+		{p.KeepaliveTimeout, "10-15"},
+		{p.MaxHandshakeAttempts, "18"},
+	} {
+		if kv.got != kv.want {
+			t.Errorf("range = %q, want %q", kv.got, kv.want)
+		}
+	}
+	if !p.RandomTrailers || !p.DisableCookies {
+		t.Errorf("bool flags = %v/%v, want true/true", p.RandomTrailers, p.DisableCookies)
+	}
+}
+
+// Конфиг в том виде, в каком его выдаёт AmneziaVPN: булевы on/off, keepalive диапазоном.
+func TestParseAmneziaClientConf(t *testing.T) {
+	hpKey := base64.StdEncoding.EncodeToString(bytesOf(0x04))
+	text := "[Interface]\nPrivateKey = " + privKey + "\nAddress = 10.8.0.2/32\n" +
+		"S1 = 12\nS2 = 12\nS3 = 12\nS4 = 12\n" +
+		"HeaderProtectionKey = " + hpKey + "\n" +
+		"RandomTrailers = on\nDisableCookies = off\n\n" +
+		"[Peer]\nPublicKey = " + pubKey + "\nAllowedIPs = 0.0.0.0/0\n" +
+		"Endpoint = 1.2.3.4:55424\nPersistentKeepalive = 25-35\n"
+
+	cfg, err := Parse(text)
+	if err != nil {
+		t.Fatalf("Parse() error = %v", err)
+	}
+	if !cfg.Amnezia.RandomTrailers || cfg.Amnezia.DisableCookies {
+		t.Errorf("bool flags = %v/%v, want true/false",
+			cfg.Amnezia.RandomTrailers, cfg.Amnezia.DisableCookies)
+	}
+	if cfg.Peers[0].Keepalive != "25-35" {
+		t.Errorf("Keepalive = %q, want 25-35", cfg.Peers[0].Keepalive)
+	}
+	uapi, err := tunnel.UAPI(cfg)
+	if err != nil {
+		t.Fatalf("UAPI() error = %v", err)
+	}
+	if !strings.Contains(uapi, "persistent_keepalive_interval=25-35\n") {
+		t.Errorf("UAPI() = %s, want keepalive range passed through", uapi)
+	}
+}
+
+func TestParseAWG3Errors(t *testing.T) {
+	base := "[Interface]\nPrivateKey = " + privKey + "\nAddress = 10.8.0.2/32\n"
+	peer := "\n[Peer]\nPublicKey = " + pubKey + "\nAllowedIPs = 0.0.0.0/0\n"
+
+	for name, line := range map[string]string{
+		"bad range":      "RekeyTimeout = 40-10\n",
+		"non-numeric":    "KeepaliveTimeout = soon\n",
+		"bad bool":       "RandomTrailers = maybe\n",
+		"short hp key":   "HeaderProtectionKey = " + base64.StdEncoding.EncodeToString([]byte("short")) + "\n",
+		"hp without pad": "HeaderProtectionKey = " + base64.StdEncoding.EncodeToString(bytesOf(0x04)) + "\n",
+	} {
+		if _, err := Parse(base + line + peer); err == nil {
+			t.Errorf("%s: Parse() = nil, want error", name)
+		}
+	}
+}
+
+func TestParseKeepaliveErrors(t *testing.T) {
+	for name, value := range map[string]string{
+		"non-numeric":   "soon",
+		"reversed":      "35-25",
+		"broken bounds": "25-",
+	} {
+		if _, err := Parse(minimalConf() + "PersistentKeepalive = " + value + "\n"); err == nil {
+			t.Errorf("%s: Parse() = nil, want error", name)
+		}
 	}
 }

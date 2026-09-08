@@ -9,22 +9,15 @@ import (
 
 const scheme = "freeturn://"
 
-// currentVersion - версия формата payload. Бампается при несовместимых изменениях схемы.
 const currentVersion = 1
 
-// Config представляет разобранную share-ссылку freeturn://
-//
-// Ссылка несёт все параметры подключения и переопределяет одноимённые флаги клиента.
-// client-id уникален на гостя: при генерации ссылки owner добавляет его в allowlist
-// (clients.json), без него гость не авторизуется. Не входит только -link (звонок VK,
-// уникален для каждого клиента).
+// Config представляет параметры подключения из share-ссылки freeturn://.
 type Config struct {
 	Version        int
 	Provider       string
 	Peer           string
 	Transport      string
 	Mode           string
-	Bond           bool
 	ObfProfile     string
 	ObfKey         string
 	N              int
@@ -34,17 +27,18 @@ type Config struct {
 	DNSMode        string
 	DNSServers     string
 	ManualCaptcha  bool
+	KCP            *KCP
 	Comment        string
+	WGConf         string
 }
 
-// wire - JSON-схема payload. Короткие ключи, omitempty для чистоты ссылки.
+// wire - JSON-схема freeturn:// ссылок.
 type wire struct {
 	V              int    `json:"v"`
 	Provider       string `json:"provider"`
 	Peer           string `json:"peer"`
 	Transport      string `json:"transport,omitempty"`
 	Mode           string `json:"mode,omitempty"`
-	Bond           bool   `json:"bond,omitempty"`
 	Obf            string `json:"obf,omitempty"`
 	Key            string `json:"key,omitempty"`
 	N              int    `json:"n,omitempty"`
@@ -54,13 +48,12 @@ type wire struct {
 	DNSMode        string `json:"dns,omitempty"`
 	DNSServers     string `json:"dnss,omitempty"`
 	ManualCaptcha  bool   `json:"mcap,omitempty"`
+	KCP            *KCP   `json:"kcp,omitempty"`
 	Name           string `json:"name,omitempty"`
+	WGConf         string `json:"wg,omitempty"`
 }
 
-// Parse разбирает строку freeturn://<base64url(json)>
-//
-// payload - base64url (без padding) от JSON-объекта wire. Версионирован полем v:
-// старый парсер отвергнет незнакомую версию, новые поля не ломают разбор.
+// Parse разбирает строку freeturn://<base64url(json)>.
 func Parse(s string) (*Config, error) {
 	if !strings.HasPrefix(s, scheme) {
 		return nil, errors.New("invalid scheme, expected freeturn://")
@@ -95,7 +88,6 @@ func Parse(s string) (*Config, error) {
 		Peer:           w.Peer,
 		Transport:      w.Transport,
 		Mode:           w.Mode,
-		Bond:           w.Bond,
 		ObfProfile:     w.Obf,
 		ObfKey:         w.Key,
 		N:              w.N,
@@ -105,12 +97,13 @@ func Parse(s string) (*Config, error) {
 		DNSMode:        w.DNSMode,
 		DNSServers:     w.DNSServers,
 		ManualCaptcha:  w.ManualCaptcha,
+		KCP:            w.KCP,
 		Comment:        w.Name,
+		WGConf:         w.WGConf,
 	}, nil
 }
 
-// String кодирует Config в freeturn://<base64url(json)>. obf-профиль none и нулевые
-// поля опускаются.
+// String кодирует Config в freeturn://<base64url(json)>.
 func (c *Config) String() string {
 	w := wire{
 		V:              currentVersion,
@@ -118,7 +111,6 @@ func (c *Config) String() string {
 		Peer:           c.Peer,
 		Transport:      c.Transport,
 		Mode:           c.Mode,
-		Bond:           c.Bond,
 		N:              c.N,
 		StreamsPerCred: c.StreamsPerCred,
 		ClientID:       c.ClientID,
@@ -126,7 +118,9 @@ func (c *Config) String() string {
 		DNSMode:        c.DNSMode,
 		DNSServers:     c.DNSServers,
 		ManualCaptcha:  c.ManualCaptcha,
+		KCP:            c.KCP,
 		Name:           c.Comment,
+		WGConf:         c.WGConf,
 	}
 	if c.ObfProfile != "" && c.ObfProfile != "none" {
 		w.Obf = c.ObfProfile
@@ -138,4 +132,15 @@ func (c *Config) String() string {
 		return ""
 	}
 	return scheme + base64.RawURLEncoding.EncodeToString(raw)
+}
+
+type KCP struct {
+	NoDelay    int  `json:"nodelay"`
+	Interval   int  `json:"interval"`
+	Resend     int  `json:"resend"`
+	NC         int  `json:"nc"`
+	SndWnd     int  `json:"sndwnd"`
+	RcvWnd     int  `json:"rcvwnd"`
+	MTU        int  `json:"mtu"`
+	ACKNoDelay bool `json:"acknodelay"`
 }
