@@ -4,6 +4,11 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 
 ## Changes vs samosvalishe/free-turn-proxy v2.1.1
 
+> Перенос 3.4.0 → 4.0.1 (2026-09-27). Апстрим вынес сигналы в
+> `internal/shutdown.Watch`, крючка там нет — `awgmctl.PushExit(0)` висит на
+> `<-ctx.Done()` в `cmd/*/main.go`. Клиент 4.x ждёт подтверждения Client ID и
+> с сервером 3.x не работает: серверы обновлять раньше клиентов.
+
 > Перенос 2.0.1 → 2.1.1 (2026-08-11). Апстрим вынес запуск клиента в
 > `internal/session` и сам инжектит ручной решатель параметром `Deps.Solver`
 > из `cmd/client/main.go` — наш пункт 5 сжался до «Solver=nil, если нет
