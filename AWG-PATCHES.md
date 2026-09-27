@@ -6,7 +6,9 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 
 > Перенос 3.4.0 → 4.0.1 (2026-09-27). Апстрим вынес сигналы в
 > `internal/shutdown.Watch`, крючка там нет — `awgmctl.PushExit(0)` висит на
-> `<-ctx.Done()` в `cmd/*/main.go`. Клиент 4.x ждёт подтверждения Client ID и
+> `<-ctx.Done()` в `cmd/*/main.go` и гонится с выходом процесса: exit-событие
+> теперь best effort (раньше уходило до `cancel()`), смерть менеджер видит
+> по закрытию соединения. Клиент 4.x ждёт подтверждения Client ID и
 > с сервером 3.x не работает: серверы обновлять раньше клиентов.
 
 > Перенос 2.0.1 → 2.1.1 (2026-08-11). Апстрим вынес запуск клиента в
@@ -66,7 +68,7 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 Роутерные бинари собирает `.github/workflows/release.yml` по тегу `vX.Y.Z-N`
 (arm64 / mipsle-softfloat / mips-softfloat, `-trimpath`, `main.version=X.Y.Z-N`)
 и кладёт в релиз вместе с `checksums.txt`. Эти же артефакты идут на зеркало
-`repo.hoaxisr.ru/ft/<версия>/`, а их SHA256 — в `internal/freeturn/install.go`
+`repo.hoaxisr.ru/ft/<версия>/`, а их SHA256 — в `internal/proxyapp/install/pins.go`
 awg-manager.
 
 7. **VKCalls auth path (1.8.0-3, WDTT-inspired)**
