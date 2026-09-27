@@ -7,9 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
-	"time"
 
 	"github.com/samosvalishe/free-turn-proxy/internal/awgmctl"
 	"github.com/samosvalishe/free-turn-proxy/internal/clientid"
@@ -18,8 +15,10 @@ import (
 	"github.com/samosvalishe/free-turn-proxy/internal/provider/vk"
 	"github.com/samosvalishe/free-turn-proxy/internal/proxy/udprelay"
 	"github.com/samosvalishe/free-turn-proxy/internal/session"
+	"github.com/samosvalishe/free-turn-proxy/internal/shutdown"
 	"github.com/samosvalishe/free-turn-proxy/internal/statedir"
 	"github.com/samosvalishe/free-turn-proxy/internal/sub"
+	"github.com/samosvalishe/free-turn-proxy/internal/tunnel"
 	"github.com/samosvalishe/free-turn-proxy/internal/tzfix"
 	"github.com/samosvalishe/free-turn-proxy/internal/wire/rtpopus"
 )
@@ -38,6 +37,7 @@ func main() {
 
 	// Резолв подписки до парсинга даёт обязательный peer для валидации.
 	if subURL := config.PeekSubURL(args); subURL != "" {
+		sub.SetLogger(logx.New(false))
 		s, ferr := sub.Fetch(context.Background(), subURL)
 		if ferr != nil {
 			log.Fatalf("failed to fetch subscription: %v", ferr)
@@ -81,23 +81,17 @@ func main() {
 	cfg.ClientID = id
 	logger.Infof("Client ID: %s", cfg.ClientID)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	if cfg.Tunnel.Enabled() {
+		logger.Warnf("ссылка содержит конфиг %s: CLI встроенный туннель не поднимает, запустите WireGuard/AmneziaWG отдельно", cfg.Tunnel.Mode)
+		cfg.Tunnel.Mode = tunnel.ModeNone
+	}
 
-	signalChan := make(chan os.Signal, 1)
-	signal.Notify(signalChan, syscall.SIGTERM, syscall.SIGINT)
+	ctx, stop := shutdown.Watch(context.Background(), logger)
+	defer stop()
+	// AWG-патч: exit-событие менеджеру. ctx гаснет только по сигналу или на выходе из main.
 	go func() {
-		<-signalChan
+		<-ctx.Done()
 		awgmctl.PushExit(0)
-		logger.Infof("Terminating...")
-		cancel()
-		select {
-		case <-signalChan:
-		case <-time.After(5 * time.Second):
-		}
-		logger.Errorf("Exit...")
-		cancel()
-		os.Exit(1)
 	}()
 
 	// AWG-патч: ручная captcha только по явному -manual-captcha. Иначе на
