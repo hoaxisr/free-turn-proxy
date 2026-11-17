@@ -4,6 +4,14 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 
 ## Changes vs samosvalishe/free-turn-proxy v2.1.1
 
+> Перенос 4.0.1 → 4.1.5 (2026-11-17). Апстрим переехал в
+> `hackdiaz-dev/free-turn-proxy` (история та же, тег v4.0.1 перевешен на
+> коммит со ссылками). Протокол не менялся. `AutoSolveFunc` получил
+> `net.Dialer` — прокинут в наш вызов `c.autoSolver`. Новые `vk.autoCaptcha`
+> (по умолчанию true) и `vk.advancedCaptcha` (false, нужен браузерный PoW —
+> на роутере его нет) флагами не выставляются; оба дефолта нам подходят.
+> MPTCP на слушателях выключен апстримом. Наш release.yml сохранён.
+
 > Перенос 3.4.0 → 4.0.1 (2026-09-27). Апстрим вынес сигналы в
 > `internal/shutdown.Watch`, крючка там нет — `awgmctl.PushExit(0)` висит на
 > `<-ctx.Done()` в `cmd/*/main.go` и гонится с выходом процесса: exit-событие
