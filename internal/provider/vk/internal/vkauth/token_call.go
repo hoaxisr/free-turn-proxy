@@ -143,9 +143,9 @@ func (c *Client) solveCaptcha(
 	case CaptchaSolveModeAuto:
 		if captchaErr.SessionToken != "" && captchaErr.RedirectURI != "" {
 			if c.autoSolver != nil {
-				successToken, solveErr = c.autoSolver(ctx, captchaErr, streamID, httpClient, profile)
+				successToken, solveErr = c.autoSolver(ctx, captchaErr, streamID, c.dialer, httpClient, profile)
 			} else {
-				successToken, solveErr = c.defaultAutoSolve(ctx, captchaErr, streamID, httpClient, profile)
+				successToken, solveErr = c.defaultAutoSolve(ctx, captchaErr, streamID, c.dialer, httpClient, profile)
 			}
 			if solveErr != nil {
 				c.log.Warnf("[STREAM %d] [Captcha] Auto captcha failed: %v", streamID, solveErr)
