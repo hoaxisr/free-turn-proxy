@@ -4,6 +4,12 @@ Forked for router-friendly **auto-only** VK Smart Captcha.
 
 ## Changes vs samosvalishe/free-turn-proxy v2.1.1
 
+> Перенос 4.1.5 → 4.2.1 (2026-11-24). Протокол не менялся. Апстрим добавил
+> флаг `-advanced-captcha` (по умолчанию выкл.; awg-manager его не передаёт)
+> и `Deps.PowCapture` — прокинут рядом с нашим `Solver=nil`. Флаги после
+> ссылки `freeturn://` теперь принимаются. `.release-please-manifest.json`
+> по-прежнему удалён.
+
 > Перенос 4.0.1 → 4.1.5 (2026-11-17). Апстрим переехал в
 > `hackdiaz-dev/free-turn-proxy` (история та же, тег v4.0.1 перевешен на
 > коммит со ссылками). Протокол не менялся. `AutoSolveFunc` получил
