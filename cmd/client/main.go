@@ -102,8 +102,9 @@ func main() {
 	}
 
 	sess, err := session.New(cfg, session.Deps{
-		Logger: logger,
-		Solver: manualSolver,
+		Logger:     logger,
+		Solver:     manualSolver,
+		PowCapture: vk.DefaultPowCapture,
 	})
 	if err != nil {
 		logger.Errorf("%v", err)
